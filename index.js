@@ -1,7 +1,8 @@
+/*! markdown-it-span 1.0.0 based on:  https://github.com//markdown-it/markdown-it-span 3.0.0 @license MIT */
 'use strict';
 
 
-module.exports = function ins_plugin(md) {
+module.exports = function span_plugin(md) {
   // Insert each marker as a separate text token, and add it to delimiter list
   //
   function tokenize(state, silent) {
@@ -17,23 +18,25 @@ module.exports = function ins_plugin(md) {
     len = scanned.length;
     ch = String.fromCharCode(marker);
 
-    if (len < 1) { return false; }
+    if (len < 2) { return false; }
 
-    if (len % 1) {
+    if (len % 2) {
       token         = state.push('text', '', 0);
       token.content = ch;
       len--;
     }
 
-    for (i = 0; i < len; i += 1) {
+    for (i = 0; i < len; i += 2) {
       token         = state.push('text', '', 0);
       token.content = ch + ch;
 
+      if (!scanned.can_open && !scanned.can_close) { continue; }
+
       state.delimiters.push({
         marker: marker,
-        jump:   i,
+        length: 0,     // disable "rule of 3" length checks meant for emphasis
+        jump:   i / 2, // 1 delimiter = 2 characters
         token:  state.tokens.length - 1,
-        level:  state.level,
         end:    -1,
         open:   scanned.can_open,
         close:  scanned.can_close
@@ -48,14 +51,13 @@ module.exports = function ins_plugin(md) {
 
   // Walk through delimiter list and replace text tokens with tags
   //
-  function postProcess(state) {
+  function postProcess(state, delimiters) {
     var i, j,
         startDelim,
         endDelim,
         token,
         loneMarkers = [],
-        delimiters = state.delimiters,
-        max = state.delimiters.length;
+        max = delimiters.length;
 
     for (i = 0; i < max; i++) {
       startDelim = delimiters[i];
@@ -74,14 +76,14 @@ module.exports = function ins_plugin(md) {
       token.type    = 'span_open';
       token.tag     = 'span';
       token.nesting = 1;
-      token.markup  = ':';
+      token.markup  = '::';
       token.content = '';
 
       token         = state.tokens[endDelim.token];
       token.type    = 'span_close';
       token.tag     = 'span';
       token.nesting = -1;
-      token.markup  = ':';
+      token.markup  = '::';
       token.content = '';
 
       if (state.tokens[endDelim.token - 1].type === 'text' &&
@@ -116,5 +118,17 @@ module.exports = function ins_plugin(md) {
   }
 
   md.inline.ruler.before('emphasis', 'span', tokenize);
-  md.inline.ruler2.before('emphasis', 'span', postProcess);
+  md.inline.ruler2.before('emphasis', 'span', function (state) {
+    var curr,
+        tokens_meta = state.tokens_meta,
+        max = (state.tokens_meta || []).length;
+
+    postProcess(state, state.delimiters);
+
+    for (curr = 0; curr < max; curr++) {
+      if (tokens_meta[curr] && tokens_meta[curr].delimiters) {
+        postProcess(state, tokens_meta[curr].delimiters);
+      }
+    }
+  });
 };
